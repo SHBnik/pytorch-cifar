@@ -13,8 +13,13 @@ import argparse
 
 from models import *
 from utils import progress_bar
+import time
 
 
+
+low_flag = False
+mid_flag = False
+high_flag = False
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Training')
 parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
 parser.add_argument('--resume', '-r', action='store_true',
@@ -54,21 +59,17 @@ classes = ('plane', 'car', 'bird', 'cat', 'deer',
 
 # Model
 print('==> Building model..')
-# net = VGG('VGG19')
+model_type = 'wideresnet16x10'
+
 # net = ResNet18()
-# net = PreActResNet18()
-# net = GoogLeNet()
-# net = DenseNet121()
-# net = ResNeXt29_2x64d()
-# net = MobileNet()
-# net = MobileNetV2()
-# net = DPN92()
-# net = ShuffleNetG2()
-# net = SENet18()
-# net = ShuffleNetV2(1)
-# net = EfficientNetB0()
-# net = RegNetX_200MF()
-net = SimpleDLA()
+# net = ResNet34()
+# net = ResNet50()
+# net = ResNet101()
+# net = ResNet152()
+net=Wide_ResNet(16, 10, 0.3, 10)
+# net=Wide_ResNet(28, 10, 0.3, 10)
+# net=Wide_ResNet(40, 8, 0.3, 10)
+
 net = net.to(device)
 if device == 'cuda':
     net = torch.nn.DataParallel(net)
@@ -111,18 +112,24 @@ def train(epoch):
 
         progress_bar(batch_idx, len(trainloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
                      % (train_loss/(batch_idx+1), 100.*correct/total, correct, total))
+        
 
 
 def test(epoch):
-    global best_acc
+    global best_acc, low_flag, high_flag, mid_flag
     net.eval()
     test_loss = 0
     correct = 0
     total = 0
+    old_time = time.time()
+    
+    response_time = 0
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(testloader):
             inputs, targets = inputs.to(device), targets.to(device)
+            start_time = time.time()
             outputs = net(inputs)
+            response_time += time.time() - start_time
             loss = criterion(outputs, targets)
 
             test_loss += loss.item()
@@ -132,6 +139,7 @@ def test(epoch):
 
             progress_bar(batch_idx, len(testloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
                          % (test_loss/(batch_idx+1), 100.*correct/total, correct, total))
+    e2e_latancy = (response_time / total) *1000
 
     # Save checkpoint.
     acc = 100.*correct/total
@@ -146,6 +154,21 @@ def test(epoch):
             os.mkdir('checkpoint')
         torch.save(state, './checkpoint/ckpt.pth')
         best_acc = acc
+
+    if acc > 65 and not low_flag:
+        low_flag = True
+        torch.save(net.state_dict(), f"{model_type}_cifar10_{acc:.2f}_{e2e_latancy:.4f}ms.pth")
+        print(f"Model saved with accuracy: {acc:.2f}")
+        
+    if acc > 85 and not mid_flag:
+        mid_flag = True
+        torch.save(net.state_dict(), f"{model_type}_cifar10_{acc:.2f}_{e2e_latancy:.4f}ms.pth")
+        print(f"Model saved with accuracy: {acc:.2f}")
+        
+    if acc > 92 and not high_flag:
+        high_flag = True
+        torch.save(net.state_dict(), f"{model_type}_cifar10_{acc:.2f}_{e2e_latancy:.4f}ms.pth")
+        print(f"Model saved with accuracy: {acc:.2f}")
 
 
 for epoch in range(start_epoch, start_epoch+200):
